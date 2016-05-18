@@ -6,6 +6,7 @@ import android.os.Build;
 import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -57,7 +58,7 @@ public class SlidingLayout extends FrameLayout{
     public interface SlidingListener{
         //不能操作繁重的任务在这里
         public void onSlidingOffset(View view, float delta);
-        public void onSlidingStateChange(View view ,int state);
+        public void onSlidingStateChange(View view, int state);
         public void onSlidingChangePointer(View view, int pointerId);
     }
 
@@ -84,7 +85,10 @@ public class SlidingLayout extends FrameLayout{
             View view = View.inflate(getContext(), mBackgroundViewLayoutId, null);
             setBackgroundView(view);
         }
+
+        //nexus 5 为24，应该是个很小的值
         mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        System.out.println("mTouchSlop  == "+mTouchSlop);
     }
 
     public void setBackgroundView(View view){
@@ -122,6 +126,7 @@ public class SlidingLayout extends FrameLayout{
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
+
         //实际上整个layout只能存在一个背景和一个前景才有用途
 //        if(getChildCount() > 2){
 //
@@ -168,38 +173,54 @@ public class SlidingLayout extends FrameLayout{
 //                Log.i("onInterceptTouchEvent", "down");
                 mActivePointerId = MotionEventCompat.getPointerId(ev, 0);
                 mIsBeingDragged = false;
+
+                //获取点击位置 y （屏幕坐标系）
                 final float initialDownY = getMotionEventY(ev, mActivePointerId);
                 if (initialDownY == -1) {
                     return false;
                 }
+                //记录初始按下Y值 （屏幕坐标系）
                 mInitialDownY = initialDownY;
                 break;
 
             case MotionEvent.ACTION_MOVE:
                 if (mActivePointerId == INVALID_POINTER) {
-//                    Log.e(LOG_TAG, "Got ACTION_MOVE event but don't have an active pointer id.");
+//                    System.out.println(LOG_TAG, "Got ACTION_MOVE event but don't have an active pointer id.");
                     return false;
                 }
 
+                //获取手指移动后的Y值 （屏幕坐标系）
                 final float y = getMotionEventY(ev, mActivePointerId);
                 if (y == -1) {
                     return false;
                 }
 
+                //如果大于初始值Y
                 if(y > mInitialDownY) {
                     //判断是否是上拉操作
+                    //得到手指滑动Y轴的偏移量
                     final float yDiff = y - mInitialDownY;
+                    //如果偏移量大于临界值  并且 mIsBeingDragged为false 并且 child <不可以>上拉
                     if (yDiff > mTouchSlop && !mIsBeingDragged && !canChildScrollUp()) {
+
+                        //获取Motion Y值，为初始按下值+临界值 （不知道该怎么表达这个值的意思 - -）
                         mInitialMotionY = mInitialDownY + mTouchSlop;
+                        //记录Motion Y值
                         mLastMotionY = mInitialMotionY;
+                        //设置 下拉操作已 启动
                         mIsBeingDragged = true;
                     }
                 }else if(y < mInitialDownY){
                     //判断是否是下拉操作
+                    //得到手指滑动Y轴的偏移量
                     final float yDiff = mInitialDownY - y;
+                    //如果偏移量大于临界值  并且 mIsBeingDragged为false 并且 child <不可以>下拉
                     if (yDiff > mTouchSlop && !mIsBeingDragged && !canChildScrollDown()) {
+                        //获取Motion Y值，为初始按下值+临界值
                         mInitialMotionY = mInitialDownY + mTouchSlop;
+                        //记录Motion Y值
                         mLastMotionY = mInitialMotionY;
+                        //设置 上拉操作已 启动
                         mIsBeingDragged = true;
                     }
                 }
@@ -211,11 +232,15 @@ public class SlidingLayout extends FrameLayout{
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
 //                Log.i("onInterceptTouchEvent", "up");
+
+                //设置 上下拉操作已 停止
                 mIsBeingDragged = false;
+                //设置event为无效
                 mActivePointerId = INVALID_POINTER;
                 break;
         }
 
+        //根据 上下拉操作是否开始，拦截事件，只有true时拦截事件
         return mIsBeingDragged;
     }
 
@@ -232,7 +257,7 @@ public class SlidingLayout extends FrameLayout{
      * @return canChildScrollUp
      */
     public boolean canChildScrollUp() {
-        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
             if (mTargetView instanceof AbsListView) {
                 final AbsListView absListView = (AbsListView) mTargetView;
                 return absListView.getChildCount() > 0
@@ -251,7 +276,7 @@ public class SlidingLayout extends FrameLayout{
      * @return canChildScrollDown
      */
     public boolean canChildScrollDown() {
-        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
             if (mTargetView instanceof AbsListView) {
                 final AbsListView absListView = (AbsListView) mTargetView;
                 return absListView.getChildCount() > 0 && absListView.getAdapter() != null
@@ -273,13 +298,18 @@ public class SlidingLayout extends FrameLayout{
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+
         switch (event.getAction()){
             case MotionEvent.ACTION_DOWN:
 //                Log.i("onTouchEvent", "down");
                 break;
             case MotionEvent.ACTION_MOVE:
+                //拉动距离
                 float delta = 0.0f;
+                //判断拉动方向
                 float movemment = 0.0f;
+
+                //多点触摸？
                 if(mSlidingPointerMode == SLIDING_POINTER_MODE_MORE) {
                     //homhom:it's different betweenn more than one pointer
                     int activePointerId = MotionEventCompat.getPointerId(event, event.getPointerCount() - 1);
@@ -305,8 +335,13 @@ public class SlidingLayout extends FrameLayout{
                     //used for judge which side move to
                     movemment = getMotionEventY(event, mActivePointerId) - mInitialMotionY;
                 }else {
+                    //拉动距离Y值 = （手指移动距离 - 手指初始距离 - 临界值）/阻力系数
                     delta = (event.getY() - mInitialMotionY) / mSlidingOffset;
                     //used for judge which side move to
+                    //以下拉为例
+                    //拉动方向 值 = 手指移动距离 - 手指初始距离 - 临界值
+                    //这里并不用担心出现 临界值过大，导致 拉动方向值为负数，导致明明是下拉而出现下拉的情况，
+                    // 在onInterceptTouchEvent中，只有（手指移动距离 - 手指初始距离）大于临界值时，事件才会传递到这里，所以这里这个值不会小于0
                     movemment = event.getY() - mInitialMotionY;
                 }
 
@@ -314,6 +349,8 @@ public class SlidingLayout extends FrameLayout{
                     mSlidingListener.onSlidingStateChange(this, STATE_SLIDING);
                     mSlidingListener.onSlidingOffset(this,delta);
                 }
+
+                //额。。这东西好像并没什么用，xml或java代码里设置both or top or bottom，然而代码其实是一样的，这个并不是上拉还是下拉的判断标志 movemment才是
                 switch (mSlidingMode){
                     case SLIDING_MODE_BOTH:
                         Instrument.getInstance().slidingByDelta(mTargetView, delta);
@@ -339,6 +376,7 @@ public class SlidingLayout extends FrameLayout{
                 if(mSlidingListener != null){
                     mSlidingListener.onSlidingStateChange(this, STATE_IDLE);
                 }
+                //松手复位
                 Instrument.getInstance().reset(mTargetView);
                 break;
         }
@@ -386,7 +424,7 @@ public class SlidingLayout extends FrameLayout{
         }
 
         public float getTranslationY(View view){
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
                 return view.getTranslationY();
             }else{
                 return ViewHelper.getTranslationY(view);
@@ -398,7 +436,7 @@ public class SlidingLayout extends FrameLayout{
                 return;
             }
             view.clearAnimation();
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
                 view.setTranslationY(delta);
             }else{
                 ViewHelper.setTranslationY(view, delta);
@@ -410,7 +448,7 @@ public class SlidingLayout extends FrameLayout{
                 return;
             }
             view.clearAnimation();
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
                 view.setY(y);
             }else{
                 ViewHelper.setY(view, y);
@@ -422,7 +460,7 @@ public class SlidingLayout extends FrameLayout{
                 return;
             }
             view.clearAnimation();
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
                 android.animation.ObjectAnimator.ofFloat(view, "translationY", 0F).setDuration(RESET_DURATION).start();
             }else{
                 com.nineoldandroids.animation.ObjectAnimator.ofFloat(view, "translationY", 0F).setDuration(RESET_DURATION).start();
@@ -434,7 +472,7 @@ public class SlidingLayout extends FrameLayout{
                 return;
             }
             view.clearAnimation();
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
                 android.animation.ObjectAnimator.ofFloat(view, "translationY", y).setDuration(SMOOTH_DURATION).start();
             }else{
                 com.nineoldandroids.animation.ObjectAnimator.ofFloat(view, "translationY", y).setDuration(SMOOTH_DURATION).start();
